@@ -18,6 +18,8 @@ public class Product {
 	private String productCode;
 	private String productPlan;
 	private String productClass;
-	private String[] postCodeInService;
-	private Long listedPrice;
+	private String[] postCodesInService;
+	private Double listedPrice;
+	private String[] postCodesWithDiscount;
+	private Double postCodeDiscountRate;
 }

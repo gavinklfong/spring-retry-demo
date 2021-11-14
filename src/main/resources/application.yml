@@ -10,8 +10,8 @@ info:
 app:
   customerSrvUrl: http://localhost:1080
   productSrvUrl:  http://localhost:1080
-  quotationEngineSrvUrl: http://localhost:1080
-  quotationRepoUrl: http://localhost:3004
+  quotation:
+    expiryTime: 60
 
 spring:
   application:

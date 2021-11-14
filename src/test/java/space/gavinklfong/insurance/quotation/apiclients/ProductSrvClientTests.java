@@ -1,66 +1,66 @@
 package space.gavinklfong.insurance.quotation.apiclients;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.github.tomakehurst.wiremock.client.WireMock;
+import com.github.tomakehurst.wiremock.junit5.WireMockRuntimeInfo;
+import com.github.tomakehurst.wiremock.junit5.WireMockTest;
 import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockserver.client.MockServerClient;
-import org.mockserver.model.MediaType;
-import org.mockserver.springtest.MockServerTest;
-import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import space.gavinklfong.insurance.quotation.models.Product;
 
+import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
 
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockserver.model.HttpRequest.request;
-import static org.mockserver.model.HttpResponse.response;
+import static com.github.tomakehurst.wiremock.client.WireMock.*;
+import static java.lang.String.format;
+import static org.junit.jupiter.api.Assertions.*;
 
 @Slf4j
-@MockServerTest("server.url=http://localhost:${mockServerPort}")
 @ExtendWith(SpringExtension.class)
+@WireMockTest
 public class ProductSrvClientTests {
 
-    @Value("${server.url}")
-    private String serverUrl;
+    private static final String POST_CODE = "SW20";
+    private static final String POST_CODE_OUT_SCOPE = "SM3";
+    private static final String POST_CODE_WITH_DISCOUNT = "XX1";
 
-    private MockServerClient mockServerClient;
+    private static final String PRODUCT_CODE = "CAR001-01";
+    private static final double PRODUCT_LISTED_PRICE = 1500;
+    private static final String[] PRODUCT_POST_CODES = {POST_CODE, POST_CODE_WITH_DISCOUNT, "SM1", "E12"};
+    private static final String[] PRODUCT_POST_CODES_WITH_DISCOUNT = {POST_CODE_WITH_DISCOUNT, "E3", "E4"};
+    private static final double PRODUCT_POST_CODE_DISCOUNT = 0.1;
+
+    private ObjectMapper objectMapper = new ObjectMapper();
+
+    private ProductSrvClient productSrvClient;
+
+    @BeforeEach
+    void setUp(WireMockRuntimeInfo wmRuntimeInfo) {
+        productSrvClient = new ProductSrvClient(wmRuntimeInfo.getHttpBaseUrl());
+        WireMock.reset();
+    }
 
     @Test
-    void givenRecordExists_getProduct() {
-
-        final String PRODUCT_CODE = "CAR001-01";
+    void givenRecordExists_whenGetProduct_thenReturnProduct() throws JsonProcessingException {
 
         // Setup request matcher and response using MockServerClient API
-        mockServerClient
-                .when(
-                        request()
-                                .withMethod("GET")
-                                .withPath("/products/.*")
-                )
-                .respond(
-                        response()
-                                .withStatusCode(200)
-                                .withContentType(MediaType.APPLICATION_JSON)
-                                .withBody(
-                                        "{" +
-                                                " \"productCode\": \"CAR001-01\"," +
-                                                " \"productPlan\": \"Home-General\"," +
-                                                " \"productClass\": \"Online\"," +
-                                                " \"postCodeInService\": [" +
-                                                " \"SW10\"," +
-                                                " \"SW20\"," +
-                                                " \"SW33\"" +
-                                                " ]," +
-                                                " \"listedPrice\": 100" +
-                                                "}"
+        stubFor(get(format("/products/%s", PRODUCT_CODE)).willReturn(
+                aResponse()
+                        .withHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                        .withBody(
+                                objectMapper.writeValueAsString(
+                                        generateProduct()
                                 )
-                );
+                        )
+        ));
 
         // Initialize API client and trigger request
-        ProductSrvClient productSrvClient = new ProductSrvClient(serverUrl);
         Optional<Product> productOptional = productSrvClient.getProduct(PRODUCT_CODE);
 
         // Assert response
@@ -68,79 +68,50 @@ public class ProductSrvClientTests {
         Product product = productOptional.get();
         assertNotNull(product.getProductPlan());
         assertNotNull(product.getProductClass());
-        assertTrue(product.getPostCodeInService().length > 0);
+        assertTrue(product.getPostCodesInService().length > 0);
     }
 
     @Test
-    void givenRecordExists_getProducts() {
+    void givenRecordExists_whenGetProducts_thenReturnProductList() throws JsonProcessingException {
 
-        // Setup request matcher and response using OpenAPI definition
-        mockServerClient
-                .when(
-                        request()
-                                .withMethod("GET")
-                                .withPath("/products")
-                )
-                .respond(
-                        response()
-                                .withStatusCode(200)
-                                .withContentType(MediaType.APPLICATION_JSON)
-                                .withBody(
-                                        "[" +
-                                                "{" +
-                                                " \"productCode\": \"CAR001-01\"," +
-                                                " \"productPlan\": \"Home-General\"," +
-                                                " \"productClass\": \"Online\"," +
-                                                " \"postCodeInService\": [" +
-                                                " \"SW10\"," +
-                                                " \"SW20\"," +
-                                                " \"SW33\"" +
-                                                " ]," +
-                                                " \"listedPrice\": 100" +
-                                                "}," +
-                                                "{" +
-                                                " \"productCode\": \"CAR002-01\"," +
-                                                " \"productPlan\": \"Home-Premier\"," +
-                                                " \"productClass\": \"Online\"," +
-                                                " \"postCodeInService\": [" +
-                                                " \"E14\"," +
-                                                " \"SW20\"," +
-                                                " \"E01\"" +
-                                                " ]," +
-                                                " \"listedPrice\": 5000" +
-                                                "}" +
-                                                "]"
-                                )
-                );
+        List products = Arrays.asList(generateProduct());
+
+        stubFor(get("/products").willReturn(
+                aResponse()
+                        .withHeader("Content-Type", MediaType.APPLICATION_JSON_VALUE)
+                        .withBody(objectMapper.writeValueAsString(products))
+        ));
 
         // Initialize API client and trigger request
-        ProductSrvClient productSrvClient = new ProductSrvClient(serverUrl);
-        List<Product> products = productSrvClient.getProducts();
+        List<Product> actualProducts = productSrvClient.getProducts();
 
         // Assert response
-        assertNotNull(products);
-        assertTrue(products.size() > 0);
+        assertNotNull(actualProducts);
+        assertTrue(actualProducts.size() > 0);
+        assertEquals(products, actualProducts);
     }
 
+    private Product generateProduct() {
+        return Product.builder()
+                .productCode(PRODUCT_CODE)
+                .productPlan("Home-General")
+                .productClass("Online")
+                .postCodesInService(PRODUCT_POST_CODES)
+                .listedPrice(PRODUCT_LISTED_PRICE)
+                .postCodeDiscountRate(PRODUCT_POST_CODE_DISCOUNT)
+                .postCodesWithDiscount(PRODUCT_POST_CODES_WITH_DISCOUNT)
+                .build();
+    }
+
+
     @Test
-    void givenRecordNotFound_getProduct() {
+    void givenRecordNotFound_whenGetProduct_thenReturnEmty() {
 
-        final String PRODUCT_CODE = "CAR001-01";
-
-        // Setup request matcher and response using OpenAPI definition
-        mockServerClient
-                .when(
-                        request()
-                                .withMethod("GET")
-                                .withPath("/products/.*")
-                )
-                .respond(
-                        response()
-                                .withStatusCode(404)
-                );
+        stubFor(get(format("/products/%s", PRODUCT_CODE)).willReturn(
+                aResponse().withStatus(404)
+        ));
 
         // Initialize API client and trigger request
-        ProductSrvClient productSrvClient = new ProductSrvClient(serverUrl);
         Optional<Product> productOptional = productSrvClient.getProduct(PRODUCT_CODE);
 
         // Assert response
@@ -148,22 +119,14 @@ public class ProductSrvClientTests {
     }
 
     @Test
-    void givenRecordNotFound_getProducts() {
+    void givenRecordNotFound_whenGetProducts_thenReturnEmpty() {
 
         // Setup request matcher and response using OpenAPI definition
-        mockServerClient
-                .when(
-                        request()
-                                .withMethod("GET")
-                                .withPath("/products")
-                )
-                .respond(
-                        response()
-                                .withStatusCode(404)
-                );
+        stubFor(get("/products").willReturn(
+                aResponse().withStatus(404)
+        ));
 
         // Initialize API client and trigger request
-        ProductSrvClient productSrvClient = new ProductSrvClient(serverUrl);
         List<Product> products = productSrvClient.getProducts();
 
         // Assert response

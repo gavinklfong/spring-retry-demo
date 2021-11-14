@@ -4,15 +4,16 @@ import com.github.javafaker.Faker;
 import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.mockito.stubbing.OngoingStubbing;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.test.context.ContextConfiguration;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import space.gavinklfong.insurance.quotation.AppConfig;
 import space.gavinklfong.insurance.quotation.apiclients.CustomerSrvClient;
 import space.gavinklfong.insurance.quotation.apiclients.ProductSrvClient;
-import space.gavinklfong.insurance.quotation.apiclients.QuotationEngineClient;
-import space.gavinklfong.insurance.quotation.dtos.QuotationEngineReq;
 import space.gavinklfong.insurance.quotation.dtos.QuotationReq;
 import space.gavinklfong.insurance.quotation.exceptions.QuotationCriteriaNotFulfilledException;
 import space.gavinklfong.insurance.quotation.exceptions.RecordNotFoundException;
@@ -26,8 +27,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Optional;
-import java.util.UUID;
-import java.util.concurrent.TimeUnit;
+import java.util.stream.IntStream;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
@@ -39,6 +39,7 @@ import static org.mockito.Mockito.when;
         "app.quotation.expiryTime=1440"
 })
 @ContextConfiguration(classes = {QuotationService.class})
+@Import(AppConfig.class)
 @Tag("UnitTest")
 public class QuotationServiceTests {
 
@@ -51,9 +52,6 @@ public class QuotationServiceTests {
     @MockBean
     private ProductSrvClient productSrvClient;
 
-    @MockBean
-    private QuotationEngineClient quotationEngineClient;
-
     @Autowired
     private QuotationService quotationService;
 
@@ -61,20 +59,24 @@ public class QuotationServiceTests {
 
     private static final String PRODUCT_CODE = "CAR001-01";
     private static final long CUSTOMER_ID = 1l;
-    private static final long LISTED_PRICE = 1500l;
     private static final String POST_CODE = "SW20";
+    private static final String POST_CODE_OUT_SCOPE = "SM3";
+    private static final String POST_CODE_WITH_DISCOUNT = "XX1";
     private static final double QUOTATION_AMOUNT = 1500;
-    private static final String[] PRODUCT_POST_CODES = {POST_CODE, "SM1", "E12"};
+
+    private static final double PRODUCT_LISTED_PRICE = 1500;
+    private static final String[] PRODUCT_POST_CODES = {POST_CODE, POST_CODE_WITH_DISCOUNT, "SM1", "E12"};
+    private static final String[] PRODUCT_POST_CODES_WITH_DISCOUNT = {POST_CODE_WITH_DISCOUNT, "E3", "E4"};
+    private static final double PRODUCT_POST_CODE_DISCOUNT = 0.1;
 
     @Test
-    void givenEverythingPassed_requestForQuotation() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
+    void givenEverythingPassed_whenRequestForQuotation_thenReturnListedPrice() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
 
         setupQuotationRepo();
         setupCustomerSrvClient(CUSTOMER_ID, faker.date().birthday(18, 99)
                 .toInstant().atZone(ZoneId.systemDefault())
                 .toLocalDate());
-        setupProductSrvClient(PRODUCT_CODE, PRODUCT_POST_CODES, LISTED_PRICE);
-        setupQuotationEngineClient(QUOTATION_AMOUNT);
+        setupProductSrvClient();
 
         QuotationReq req = QuotationReq.builder()
                 .customerId(CUSTOMER_ID)
@@ -91,14 +93,13 @@ public class QuotationServiceTests {
     }
 
     @Test
-    void givenCustomerBelow18_requestForQuotation() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
+    void givenCustomerBelow18_whenRequestForQuotation_thenThrowException() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
 
         setupQuotationRepo();
         setupCustomerSrvClient(CUSTOMER_ID, faker.date().birthday(0, 17)
                 .toInstant().atZone(ZoneId.systemDefault())
                 .toLocalDate());
-        setupProductSrvClient(PRODUCT_CODE, PRODUCT_POST_CODES, LISTED_PRICE);
-        setupQuotationEngineClient(QUOTATION_AMOUNT);
+        setupProductSrvClient();
 
         QuotationReq req = QuotationReq.builder()
                 .customerId(CUSTOMER_ID)
@@ -106,26 +107,23 @@ public class QuotationServiceTests {
                 .postCode(POST_CODE)
                 .build();
         assertThrows(QuotationCriteriaNotFulfilledException.class, () ->
-            quotationService.generateQuotation(req)
+                quotationService.generateQuotation(req)
         );
     }
 
     @Test
-    void givenCustomerAbove18_postCodeOutOfScope_requestForQuotation() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
-
-        final String[] PRODUCT_POST_CODES = {"SM1", "E12"};
+    void givenCustomerAbove18AndPostCodeOutOfScope_whenRequestForQuotation_thenThrowException() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
 
         setupQuotationRepo();
         setupCustomerSrvClient(CUSTOMER_ID, faker.date().birthday(18, 99)
                 .toInstant().atZone(ZoneId.systemDefault())
                 .toLocalDate());
-        setupProductSrvClient(PRODUCT_CODE, PRODUCT_POST_CODES, LISTED_PRICE);
-        setupQuotationEngineClient(QUOTATION_AMOUNT);
+        setupProductSrvClient();
 
         QuotationReq req = QuotationReq.builder()
                 .customerId(CUSTOMER_ID)
                 .productCode(PRODUCT_CODE)
-                .postCode(POST_CODE)
+                .postCode(POST_CODE_OUT_SCOPE)
                 .build();
 
         assertThrows(QuotationCriteriaNotFulfilledException.class, () -> {
@@ -135,19 +133,18 @@ public class QuotationServiceTests {
     }
 
     @Test
-    void givenCustomerBelow18_postCodeOutOfScope_requestForQuotation() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
+    void givenCustomerBelow18AndPostCodeOutOfScope_whenRequestForQuotation_thenThrowException() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
 
         setupQuotationRepo();
         setupCustomerSrvClient(CUSTOMER_ID, faker.date().birthday(0, 17)
                 .toInstant().atZone(ZoneId.systemDefault())
                 .toLocalDate());
-        setupProductSrvClient(PRODUCT_CODE, PRODUCT_POST_CODES, LISTED_PRICE);
-        setupQuotationEngineClient(QUOTATION_AMOUNT);
+        setupProductSrvClient();
 
         QuotationReq req = QuotationReq.builder()
                 .customerId(CUSTOMER_ID)
                 .productCode(PRODUCT_CODE)
-                .postCode(POST_CODE)
+                .postCode(POST_CODE_OUT_SCOPE)
                 .build();
         assertThrows(QuotationCriteriaNotFulfilledException.class, () -> {
             quotationService.generateQuotation(req);
@@ -155,11 +152,10 @@ public class QuotationServiceTests {
     }
 
     @Test
-    void givenUnknownCustomer_requestForQuotation() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
+    void givenUnknownCustomer_whenRequestForQuotation_thenThrowException() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
 
         setupQuotationRepo();
-        setupProductSrvClient(PRODUCT_CODE, PRODUCT_POST_CODES, LISTED_PRICE);
-        setupQuotationEngineClient(QUOTATION_AMOUNT);
+        setupProductSrvClient();
 
         when(customerSrvClient.getCustomer(anyLong())).thenReturn(Optional.empty());
 
@@ -174,10 +170,9 @@ public class QuotationServiceTests {
     }
 
     @Test
-    void givenUnknownProduct_requestForQuotation() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
+    void givenUnknownProduct_whenRequestForQuotation_thenThrowException() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
 
         setupQuotationRepo();
-        setupQuotationEngineClient(QUOTATION_AMOUNT);
         setupCustomerSrvClient(CUSTOMER_ID, faker.date().birthday(18, 99)
                 .toInstant().atZone(ZoneId.systemDefault())
                 .toLocalDate());
@@ -194,45 +189,93 @@ public class QuotationServiceTests {
         });
     }
 
-    void setupCustomerSrvClient(Long customerId, LocalDate dob) throws IOException {
+    @Test
+    void givenCustomerAbove18AndPostCodeWithDiscount_whenRequestForQuotation_thenReturnPriceWithDiscount() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
 
-        Optional<Customer> customer = Optional.of(Customer.builder()
+        setupQuotationRepo();
+        setupCustomerSrvClient(CUSTOMER_ID, faker.date().birthday(18, 99)
+                .toInstant().atZone(ZoneId.systemDefault())
+                .toLocalDate());
+        setupProductSrvClient();
+
+        QuotationReq req = QuotationReq.builder()
+                .customerId(CUSTOMER_ID)
+                .productCode(PRODUCT_CODE)
+                .postCode(POST_CODE_WITH_DISCOUNT)
+                .build();
+        Quotation quotation = quotationService.generateQuotation(req);
+
+        double QUOTATION_AMOUNT_WITH_DISCOUNT = QUOTATION_AMOUNT * (1 - PRODUCT_POST_CODE_DISCOUNT);
+
+        assertEquals(QUOTATION_AMOUNT_WITH_DISCOUNT, quotation.getAmount());
+        assertNotNull(quotation.getQuotationCode());
+        assertTrue(quotation.getExpiryTime().isAfter(LocalDateTime.now()));
+        assertEquals(CUSTOMER_ID, quotation.getCustomerId());
+        assertEquals(PRODUCT_CODE, quotation.getProductCode());
+    }
+
+    @Test
+    void given1stAttemptOnCustomerAPIFailAndThenSuccess_whenRequestForQuotation_thenSuccess() throws IOException, RecordNotFoundException, QuotationCriteriaNotFulfilledException {
+        setupQuotationRepo();
+        setupCustomerSrvClient(CUSTOMER_ID, faker.date().birthday(18, 99)
+                .toInstant().atZone(ZoneId.systemDefault())
+                .toLocalDate(), 2, true);
+        setupProductSrvClient();
+
+        QuotationReq req = QuotationReq.builder()
+                .customerId(CUSTOMER_ID)
+                .productCode(PRODUCT_CODE)
+                .postCode(POST_CODE)
+                .build();
+        Quotation quotation = quotationService.generateQuotation(req);
+
+        assertEquals(QUOTATION_AMOUNT, quotation.getAmount());
+        assertNotNull(quotation.getQuotationCode());
+        assertTrue(quotation.getExpiryTime().isAfter(LocalDateTime.now()));
+        assertEquals(CUSTOMER_ID, quotation.getCustomerId());
+        assertEquals(PRODUCT_CODE, quotation.getProductCode());
+    }
+
+    private void setupCustomerSrvClient(Long customerId, LocalDate dob) throws IOException {
+        setupCustomerSrvClient(customerId, dob, 0, true);
+    }
+
+    private void setupCustomerSrvClient(Long customerId, LocalDate dob, int noOfFailure, boolean isSuccessAtLast) throws IOException {
+
+        OngoingStubbing stubbing = when(customerSrvClient.getCustomer(anyLong()));
+        for (int i = 0; i < noOfFailure; i++) {
+            stubbing = stubbing.thenThrow(new RuntimeException("Exception " + i));
+        };
+
+        if (isSuccessAtLast) {
+            Optional<Customer> customer = Optional.of(generateCustomer(customerId, dob));
+            stubbing.thenReturn(customer);
+        }
+    }
+
+    private Customer generateCustomer(Long customerId, LocalDate dob) {
+        return Customer.builder()
                 .id(customerId)
                 .dob(dob)
                 .name(faker.name().name())
-                .build());
-
-        when(customerSrvClient.getCustomer(anyLong())).thenReturn(customer);
+                .build();
     }
 
-    void setupProductSrvClient(String productCode, String[] postCodes, Long listedPrice) {
+    private void setupProductSrvClient() {
         Optional<Product> product = Optional.of(Product.builder()
-                .productCode(productCode)
+                .productCode(PRODUCT_CODE)
                 .productClass("Online")
                 .productPlan("Home-General")
-                .postCodeInService(postCodes)
-                .listedPrice(listedPrice)
+                .postCodesInService(PRODUCT_POST_CODES)
+                .listedPrice(PRODUCT_LISTED_PRICE)
+                .postCodesWithDiscount(PRODUCT_POST_CODES_WITH_DISCOUNT)
+                .postCodeDiscountRate(PRODUCT_POST_CODE_DISCOUNT)
                 .build());
 
         when(productSrvClient.getProduct(anyString())).thenReturn(product);
     }
 
-    void setupQuotationEngineClient(Double quotationAmount) {
-        when(quotationEngineClient.generateQuotation(any(QuotationEngineReq.class))).thenAnswer(invocation -> {
-            QuotationEngineReq req = (QuotationEngineReq) invocation.getArgument(0);
-            return Quotation.builder()
-                    .expiryTime(faker.date().future(2, TimeUnit.DAYS)
-                            .toInstant().atZone(ZoneId.systemDefault())
-                            .toLocalDateTime())
-                    .amount(quotationAmount)
-                    .productCode(req.getProduct().getProductCode())
-                    .customerId(req.getCustomer().getId())
-                    .quotationCode(UUID.randomUUID().toString())
-                    .build();
-        });
-    }
-
-    void setupQuotationRepo() {
+    private void setupQuotationRepo() {
         when(quotationRepo.save(any(Quotation.class)))
                 .thenAnswer(invocation -> (Quotation) invocation.getArgument(0));
     }

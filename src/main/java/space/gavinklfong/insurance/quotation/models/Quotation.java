@@ -2,9 +2,9 @@ package space.gavinklfong.insurance.quotation.models;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
 import lombok.*;
-import javax.persistence.Id;
 
 import javax.persistence.Entity;
+import javax.persistence.Id;
 import javax.persistence.Table;
 import java.time.LocalDateTime;
 

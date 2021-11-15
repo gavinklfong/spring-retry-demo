@@ -3,13 +3,11 @@ package space.gavinklfong.insurance.quotation.services;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.retry.annotation.Backoff;
-import org.springframework.retry.annotation.Retryable;
 import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
-import space.gavinklfong.insurance.quotation.apiclients.CustomerSrvClient;
 import space.gavinklfong.insurance.quotation.apiclients.ProductSrvClient;
+import space.gavinklfong.insurance.quotation.apiclients.RetryableCustomerSrvClient;
 import space.gavinklfong.insurance.quotation.dtos.QuotationReq;
 import space.gavinklfong.insurance.quotation.exceptions.QuotationCriteriaNotFulfilledException;
 import space.gavinklfong.insurance.quotation.exceptions.RecordNotFoundException;
@@ -18,6 +16,7 @@ import space.gavinklfong.insurance.quotation.models.Product;
 import space.gavinklfong.insurance.quotation.models.Quotation;
 import space.gavinklfong.insurance.quotation.repositories.QuotationRepository;
 
+import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.Period;
 import java.util.Arrays;
@@ -38,16 +37,16 @@ public class QuotationService {
 
 	@Autowired
 	private QuotationRepository quotationRepo;
-	
+
 	@Autowired
-	private CustomerSrvClient customerSrvClient;	
-	
+	private RetryableCustomerSrvClient customerSrvClient;
+
 	@Autowired
 	private ProductSrvClient productSrvClient;
 
 	public Quotation generateQuotation(QuotationReq request) throws RecordNotFoundException, QuotationCriteriaNotFulfilledException {
 		
-		Customer customer = retrieveCustomer(request.getCustomerId())
+		Customer customer = customerSrvClient.getCustomer(request.getCustomerId())
 				.orElseThrow(() -> new RecordNotFoundException("Unknown customer"));
 
 		Product product = retrieveProduct(request.getProductCode())
@@ -115,26 +114,21 @@ public class QuotationService {
 	}
 
 	private Quotation saveQuotation(Quotation quotation) {
-		return quotationRepo.save(quotation);
+		RetryTemplate retryTemplate = RetryTemplate.builder()
+				.maxAttempts(3)
+				.fixedBackoff(1000L)
+				.build();
+
+		return retryTemplate.execute(arg -> quotationRepo.save(quotation));
 	}
 
 	private Optional<Product> retrieveProduct(String productCode) {
-		return productSrvClient.getProduct(productCode);
+		RetryTemplate retryTemplate = RetryTemplate.builder()
+				.maxAttempts(4)
+				.retryOn(RuntimeException.class)
+				.exponentialBackoff(300L, 2, 5000L, true)
+				.build();
+
+		return retryTemplate.execute(arg -> productSrvClient.getProduct(productCode));
 	}
-
-//	@Retryable(maxAttempts = 3, backoff = @Backoff(delay = 300), value = {Exception.class})
-	private Optional<Customer> retrieveCustomer(Long customerId) {
-		RetryTemplate retryTemplate = new RetryTemplate();
-		SimpleRetryPolicy retryPolicy = new SimpleRetryPolicy();
-		retryPolicy.setMaxAttempts(3);
-		retryTemplate.setRetryPolicy(retryPolicy);
-
-		return retryTemplate.execute(arg -> {
-			return customerSrvClient.getCustomer(customerId);
-		});
-
-
-//		return customerSrvClient.getCustomer(customerId);
-	}
-
 }

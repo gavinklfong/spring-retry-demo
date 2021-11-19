@@ -258,7 +258,7 @@ public class QuotationServiceTests {
         setupCustomerSrvClient(CUSTOMER_ID, faker.date().birthday(18, 99)
                 .toInstant().atZone(ZoneId.systemDefault())
                 .toLocalDate());
-        setupProductSrvClient(3, true);
+        setupProductSrvClient(1, true);
 
         QuotationReq req = QuotationReq.builder()
                 .customerId(CUSTOMER_ID)

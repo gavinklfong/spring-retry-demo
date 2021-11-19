@@ -1,15 +1,20 @@
-# Demonstration of Testing With MockServer
+# Demonstration of Spring Retry
 
-This repository contains a sample implementation of price quotation API and the automated test cases. 
+This repository contains a sample implementation of price quotation API and automated test cases. 
 
-The purpose to demonstrate the test automation using [MockServer](https://www.mock-server.com/#what-is-mockserver).
+The purpose to demonstrate the use of retry supported by Spring framework.
 
-## API
+## System Overview
 The price quotation API exposes an endpoint for quotation request
 
 ```
 [POST] /quotations/generate`
 ```
+
+The service retrieves information from Product API and Customer API for evaulation. The generated generated quotation is then saved into data store and return back to client.
+
+![System Logic](https://raw.githubusercontent.com/gavinklfong/spring-retry-demo/master/blob/System_Overview.png?raw=true)
+
 
 ## Build & Execution
 
@@ -18,18 +23,23 @@ To build and run API, run this command to compile and run unit tests and integra
 mvn clean install
 ```
 
-## System Logic
-The Quotation API orchestrates external APIs - Customer, Product and Quotation Engine in order to validate and generate price quotation upon client's request.
+## Declarative Approach
+The use of Spring annotation ```@Retryable``` injects retry mechanism into the system logic by creating a proxy. It is transparent to the system logic as the proxy is injected during runtime.
 
-![System Logic](https://raw.githubusercontent.com/gavinklfong/spring-mock-demo/master/blob/Quotation_Logic_Flow.png?raw=true)
-
-## System Component
-API clients are responsible for the integration with external APIs. 
-
-![Component Diagram](https://raw.githubusercontent.com/gavinklfong/spring-mock-demo/master/blob/Quotation_API.jpg?raw=true)
+Refer to ```RetryableCustomerSrvClient``` for the sample use of ```@Retryable``` annotation
 
 
-## Maven Lifecycle for Test Execution
-Maven lifecycle manages the test execution and initialization of MockServer. Refer to pom.xml for the detailed configuration.
+![Proxy](https://raw.githubusercontent.com/gavinklfong/spring-retry-demo/master/blob/Retry_Proxy.png?raw=true)
 
-![Maven Lifecycle](https://raw.githubusercontent.com/gavinklfong/spring-mock-demo/master/blob/Maven_Lifecycle.jpg?raw=true)
+## Imperative Approach
+Another approach is to make use of ```RetryTemplate``` which allows system logic to determine the retry policy programmatically.
+
+Refer to ```QuotationService.retrieveProduct()``` for the sample use of ```RetryTemplate```
+
+![RetryTemplate](https://raw.githubusercontent.com/gavinklfong/spring-retry-demo/master/blob/RetryTemplate.png?raw=true)
+
+
+## Automated Test for Retry Logic
+It is hard to simulate error in data stores and external APIs. Mockito is a great tool to mock the exception error in unit tests.
+
+You can find the sample unit test cases in ```QuotationServiceTests```.

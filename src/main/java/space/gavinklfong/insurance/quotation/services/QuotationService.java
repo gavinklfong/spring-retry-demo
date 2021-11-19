@@ -3,7 +3,6 @@ package space.gavinklfong.insurance.quotation.services;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.retry.policy.SimpleRetryPolicy;
 import org.springframework.retry.support.RetryTemplate;
 import org.springframework.stereotype.Service;
 import space.gavinklfong.insurance.quotation.apiclients.ProductSrvClient;
@@ -16,7 +15,6 @@ import space.gavinklfong.insurance.quotation.models.Product;
 import space.gavinklfong.insurance.quotation.models.Quotation;
 import space.gavinklfong.insurance.quotation.repositories.QuotationRepository;
 
-import java.io.IOException;
 import java.time.LocalDateTime;
 import java.time.Period;
 import java.util.Arrays;
@@ -29,6 +27,8 @@ import static java.util.Objects.nonNull;
 @Slf4j
 @Service
 public class QuotationService {
+
+	public static final String TRAVEL_INSURANCE_PREFIX = "TR";
 
 	public static final int CUSTOMER_ELIGIBLE_AGE = 18;
 
@@ -123,8 +123,11 @@ public class QuotationService {
 	}
 
 	private Optional<Product> retrieveProduct(String productCode) {
+
+		int maxAttempts = productCode.startsWith(TRAVEL_INSURANCE_PREFIX)? 5 : 2;
+
 		RetryTemplate retryTemplate = RetryTemplate.builder()
-				.maxAttempts(4)
+				.maxAttempts(maxAttempts)
 				.retryOn(RuntimeException.class)
 				.exponentialBackoff(300L, 2, 5000L, true)
 				.build();
